@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Void Defense 50 – Space Tower Defense</title>
+<style>
+:root{--bg:#eef1f6;--ink:#141824;--panel:#fff;--line:#d5dae6;--mut:#5a6275;--acc:#7c3aed;--bad:#dc2626;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0d1017;--ink:#eef1f8;--panel:#171b26;--line:#2a3042;--mut:#9aa2b8}}
+:root[data-theme="dark"]{--bg:#0d1017;--ink:#eef1f8;--panel:#171b26;--line:#2a3042;--mut:#9aa2b8}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif}
+.app{max-width:860px;margin:0 auto;padding:12px}
+.hud{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px}
+.hud div{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:6px 14px;font-weight:700}
+.hud span{color:var(--mut);font-weight:500;margin-right:6px}
+.board{position:relative}
+canvas{width:100%;height:auto;display:block;border-radius:14px;border:2px solid var(--line);touch-action:manipulation;background:#070a1c}
+#toast{position:absolute;left:50%;top:12px;transform:translateX(-50%);background:rgba(10,12,18,.85);color:#fff;padding:8px 18px;border-radius:99px;font-weight:700;opacity:0;transition:opacity .3s;pointer-events:none;white-space:nowrap}
+#over{position:absolute;inset:0;display:none;place-items:center;text-align:center;background:rgba(8,10,16,.82);color:#fff;border-radius:14px}
+#over h2{margin:0 0 6px;font-size:2.2rem}
+.bar{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:10px 0}
+button{font:inherit;cursor:pointer;color:var(--ink)}
+.tw{background:var(--panel);border:2px solid var(--line);border-radius:14px;padding:10px;text-align:left}
+.tw b{display:block}.tw small{color:var(--mut);display:block;line-height:1.3}
+.tw[aria-pressed="true"]{border-color:var(--acc)}
+.tw:disabled{opacity:.45;cursor:not-allowed}
+.ctl{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.btn{background:var(--acc);color:#fff;border:0;border-radius:99px;padding:10px 22px;font-weight:700}
+.btn.o{background:var(--panel);color:var(--ink);border:2px solid var(--line)}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+#sel{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:10px 14px;margin-top:10px;min-height:56px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;justify-content:space-between}
+#sel .btn{padding:8px 16px}
+.leg{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:4px 16px;margin-top:12px;color:var(--mut);font-size:.88rem}
+.leg i{display:inline-block;width:11px;height:11px;border-radius:50%;margin-right:7px}
+@media(max-width:560px){.bar{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="app">
+<div class="hud"><div><span>Wave</span><b id="hR">0/50</b></div><div><span>Hull</span><b id="hL">20</b></div><div><span>Credits</span><b id="hG">0</b></div><div><span>Next</span><b id="hN"></b></div></div>
+<div class="board"><canvas id="c" width="800" height="480"></canvas><div id="toast"></div>
+<div id="over"><div><h2 id="oT"></h2><p id="oP"></p><button class="btn" id="again">Play again</button></div></div></div>
+<div class="bar" id="bar"></div>
+<div class="ctl"><button class="btn" id="go">Start wave 1</button><button class="btn o" id="spd">Speed 1x</button><label><input type="checkbox" id="auto"> Auto-start waves</label></div>
+<div id="sel"></div>
+<div class="leg" id="leg"></div>
+</div>
+<script>
+const $=id=>document.getElementById(id),C=$('c'),g=C.getContext('2d'),T=40,MAXR=50;
+const P=[[-1,2],[15,2],[15,5],[3,5],[3,8],[17,8],[17,10],[20,10]].map(([x,y])=>[x*T+20,y*T+20]);
+const L=[];let TOT=0;for(let i=0;i<P.length-1;i++){const l=Math.hypot(P[i+1][0]-P[i][0],P[i+1][1]-P[i][1]);L.push(l);TOT+=l}
+const blocked=new Set();
+for(let i=0;i<P.length-1;i++){let cx=Math.round((P[i][0]-20)/T),cy=Math.round((P[i][1]-20)/T);const ex=Math.round((P[i+1][0]-20)/T),ey=Math.round((P[i+1][1]-20)/T),sx=Math.sign(ex-cx),sy=Math.sign(ey-cy);for(;;){blocked.add(cx+','+cy);if(cx==ex&&cy==ey)break;cx+=sx;cy+=sy}}
+function pos(d){for(let i=0;i<L.length;i++){if(d<=L[i]){const a=P[i],b=P[i+1],t=d/L[i];return[a[0]+(b[0]-a[0])*t,a[1]+(b[1]-a[1])*t]}d-=L[i]}return P[P.length-1]}
+
+const TW={
+blaster:{n:'Pulse Fighter',d:'Rapid laser fire. Weak against armor.',c:[50,60,140],rng:[120,130,145],rate:[.38,.3,.22],dmg:[7,15,30],col:'#38bdf8'},
+cannon:{n:'Torpedo Cruiser',d:'Slow splash torpedoes that ignore armor.',c:[120,110,260],rng:[135,145,160],rate:[1.5,1.4,1.2],dmg:[32,70,150],spl:[48,56,66],col:'#fb923c'},
+frost:{n:'Cryo Frigate',d:'Cryo pulse slows every alien in range.',c:[90,80,180],rng:[105,115,130],rate:[.9,.8,.7],dmg:[2,4,9],slow:[.35,.5,.65],col:'#a5f3fc'}};
+const EN={
+scout:{n:'Zipper',hp:22,sp:95,r:9,col:'#ffd23f',rw:4,arm:0,note:'Fast and fragile'},
+grunt:{n:'Grub',hp:45,sp:60,r:11,col:'#ff6b4a',rw:5,arm:0,note:'Standard invader'},
+swarm:{n:'Spawnling',hp:12,sp:75,r:6,col:'#b0e04a',rw:2,arm:0,note:'Comes in big packs'},
+brute:{n:'Behemoth',hp:170,sp:36,r:15,col:'#8a5cf6',rw:12,arm:1,note:'Slow and very tough'},
+shield:{n:'Carapace',hp:75,sp:52,r:12,col:'#4dd0e1',rw:9,arm:3,note:'Shell shrugs off weak hits'},
+boss:{n:'Hive Queen',hp:1800,sp:28,r:24,col:'#e11d48',rw:150,arm:5,note:'Boss, every 10th wave'}};
+
+let money,lives,round,active,queue,spawnT,towers,enemies,projs,fx,sel,st,over,speed=1,autoT,hover=null;
+function init(){money=150;lives=20;round=0;active=false;queue=[];spawnT=0;towers=[];enemies=[];projs=[];fx=[];sel=null;st=null;over=false;autoT=-1;$('over').style.display='none';ui()}
+const mult=r=>1+r*.1+r*r*.0022;
+function plan(r){const q=[],add=(t,n)=>{for(let i=0;i<n;i++)q.push(t)},boss=r%10==0,k=boss?.5:1;
+add('grunt',Math.floor((4+r*.7)*k));if(r>=3)add('scout',Math.floor((2+r*.4)*k));if(r>=5)add('swarm',Math.floor((6+r*.9)*k));
+if(r>=8)add('brute',Math.floor((1+(r-6)*.25)*k)||1);if(r>=12)add('shield',Math.floor((2+(r-10)*.35)*k)||1);
+for(let i=q.length-1;i>0;i--){const j=Math.random()*(i+1)|0;[q[i],q[j]]=[q[j],q[i]]}
+if(boss)q.push('boss');return q}
+function startRound(){if(active||over||round>=MAXR)return;round++;queue=plan(round);spawnT=0;active=true;toast(round%10==0?'Wave '+round+': the Hive Queen approaches!':'Wave '+round);ui()}
+function spawn(k){const d=EN[k],m=mult(round);enemies.push({k,d:0,x:-20,y:P[0][1],hp:d.hp*m,max:d.hp*m,arm:d.arm*(1+round*.08),slow:0,slowT:0})}
+function hit(e,dmg,pierce){if(e.dead)return;e.hp-=Math.max(dmg*.25,dmg-(pierce?0:e.arm));if(e.hp<=0){e.dead=true;money+=Math.round(EN[e.k].rw*(1+round*.06));fx.push({x:e.x,y:e.y,r:EN[e.k].r,max:EN[e.k].r*2.2,life:.25,col:EN[e.k].col,fill:1})}}
+function step(dt){
+if(active&&queue.length){spawnT-=dt;if(spawnT<=0){const k=queue.shift();spawn(k);const iv=k=='boss'?1.2:Math.max(.22,.7-round*.009);spawnT=k=='swarm'?iv*.5:iv}}
+for(const e of enemies){const s=EN[e.k].sp*(1-e.slow);e.d+=s*dt;e.slowT-=dt;if(e.slowT<=0)e.slow=0;[e.x,e.y]=pos(e.d);
+if(e.d>=TOT&&!e.dead){e.dead=true;lives-=e.k=='boss'?10:e.k=='brute'?2:1;toast('An alien reached the planet!');if(lives<=0){lives=0;end(false)}}}
+for(const t of towers){const d=TW[t.k],rng=d.rng[t.lv];t.cd-=dt;
+const inR=enemies.filter(e=>!e.dead&&Math.hypot(e.x-t.x,e.y-t.y)<=rng);
+if(!inR.length)continue;
+if(t.k=='frost'){if(t.cd<=0){t.cd=d.rate[t.lv];for(const e of inR){e.slow=Math.max(e.slow,d.slow[t.lv]);e.slowT=1.2;hit(e,d.dmg[t.lv],true)}fx.push({x:t.x,y:t.y,r:10,max:rng,life:.35,col:d.col})}}
+else{const tg=inR.reduce((a,b)=>b.d>a.d?b:a);t.ang=Math.atan2(tg.y-t.y,tg.x-t.x);
+if(t.cd<=0){t.cd=d.rate[t.lv];projs.push({x:t.x,y:t.y,tg,tx:tg.x,ty:tg.y,k:t.k,dmg:d.dmg[t.lv],spl:d.spl?d.spl[t.lv]:0,sp:t.k=='cannon'?260:460,col:d.col})}}}
+for(const p of projs){if(p.tg&&!p.tg.dead){p.tx=p.tg.x;p.ty=p.tg.y}else if(p.k=='blaster'){p.done=1;continue}
+const dx=p.tx-p.x,dy=p.ty-p.y,dist=Math.hypot(dx,dy),mv=p.sp*dt;
+if(dist<=mv){p.done=1;if(p.spl){for(const e of enemies)if(!e.dead&&Math.hypot(e.x-p.tx,e.y-p.ty)<=p.spl+EN[e.k].r*.5)hit(e,p.dmg,true);fx.push({x:p.tx,y:p.ty,r:6,max:p.spl,life:.3,col:p.col,fill:1})}else if(p.tg)hit(p.tg,p.dmg,false)}
+else{p.x+=dx/dist*mv;p.y+=dy/dist*mv}}
+enemies=enemies.filter(e=>!e.dead);projs=projs.filter(p=>!p.done);
+for(const f of fx)f.life-=dt;fx=fx.filter(f=>f.life>0);
+if(active&&!queue.length&&!enemies.length&&!over){active=false;if(round>=MAXR){end(true)}else{const b=25+round*3;money+=b;toast('Wave '+round+' cleared! +'+b+' credits');if($('auto').checked)autoT=2}}
+if(autoT>0){autoT-=dt;if(autoT<=0){autoT=-1;startRound()}}
+ui()}
+function end(win){over=true;$('oT').textContent=win?'Earth is saved!':'Planet lost';$('oP').textContent=win?'Earth is safe. You repelled the invasion through all 50 waves.':'The aliens broke through on wave '+round+' of '+MAXR+'.';$('over').style.display='grid'}
+let tt;function toast(s){const t=$('toast');t.textContent=s;t.style.opacity=1;clearTimeout(tt);tt=setTimeout(()=>t.style.opacity=0,1800)}
+
+/* drawing */
+const BG=document.createElement('canvas');BG.width=800;BG.height=480;
+(function(){const b=BG.getContext('2d');let q=b.createLinearGradient(0,0,0,480);q.addColorStop(0,'#050716');q.addColorStop(1,'#12123a');b.fillStyle=q;b.fillRect(0,0,800,480);
+for(const [x,y,r,c] of [[160,420,200,'rgba(124,58,237,.22)'],[640,60,220,'rgba(14,165,233,.16)'],[420,250,160,'rgba(236,72,153,.08)']]){q=b.createRadialGradient(x,y,0,x,y,r);q.addColorStop(0,c);q.addColorStop(1,'transparent');b.fillStyle=q;b.fillRect(0,0,800,480)}
+for(let i=0;i<110;i++){b.globalAlpha=.3+(i%5)*.15;b.fillStyle=i%9?'#fff':'#bfdbfe';const r=(i%4)*.35+.5;b.beginPath();b.arc((i*137.5)%800,(i*91.3+i*i*7)%480,r,0,7);b.fill()}b.globalAlpha=1;
+b.lineCap='round';b.lineJoin='round';const pt=()=>{b.beginPath();P.forEach((p,i)=>i?b.lineTo(p[0],p[1]):b.moveTo(p[0],p[1]))};
+b.strokeStyle='#22306b';b.lineWidth=T-4;pt();b.stroke();b.strokeStyle='#0c1236';b.lineWidth=T-12;pt();b.stroke();
+b.strokeStyle='rgba(125,211,252,.45)';b.lineWidth=2;b.setLineDash([10,12]);pt();b.stroke();b.setLineDash([]);
+const e=P[P.length-1];q=b.createRadialGradient(790,e[1]-10,6,800,e[1],56);q.addColorStop(0,'#4ade80');q.addColorStop(.5,'#0ea5e9');q.addColorStop(1,'#1e3a8a');b.fillStyle=q;b.beginPath();b.arc(805,e[1],50,0,7);b.fill()})();
+function draw(){g.clearRect(0,0,800,480);g.drawImage(BG,0,0);
+if(hover&&sel&&!blocked.has(hover.cx+','+hover.cy)&&!towers.some(t=>t.cx==hover.cx&&t.cy==hover.cy)){const d=TW[sel];ring(hover.cx*T+20,hover.cy*T+20,d.rng[0],money>=d.c[0]?'rgba(255,255,255,.9)':'rgba(255,90,90,.9)');g.fillStyle='rgba(255,255,255,.18)';g.fillRect(hover.cx*T+2,hover.cy*T+2,T-4,T-4)}
+for(const t of towers)tower(t);
+for(const e of enemies)enemy(e);
+for(const p of projs){g.fillStyle=p.col;if(p.k=='cannon'){g.globalAlpha=.3;g.beginPath();g.arc(p.x,p.y,10,0,7);g.fill();g.globalAlpha=1;g.beginPath();g.arc(p.x,p.y,5,0,7);g.fill()}else{const a=Math.atan2(p.ty-p.y,p.tx-p.x);g.strokeStyle=p.col;g.lineWidth=3;g.beginPath();g.moveTo(p.x,p.y);g.lineTo(p.x-Math.cos(a)*10,p.y-Math.sin(a)*10);g.stroke()}}
+for(const f of fx){const a=f.life/(f.fill?.3:.35),r=f.r+(f.max-f.r)*(1-a);g.globalAlpha=Math.max(0,a);g.strokeStyle=f.col;g.fillStyle=f.col;g.lineWidth=3;g.beginPath();g.arc(f.x,f.y,r,0,7);f.fill?g.fill():g.stroke();g.globalAlpha=1}
+const b=enemies.find(e=>e.k=='boss');if(b){g.fillStyle='rgba(0,0,0,.6)';g.fillRect(200,8,400,14);g.fillStyle='#e11d48';g.fillRect(202,10,396*Math.max(0,b.hp/b.max),10);g.fillStyle='#fff';g.font='bold 11px system-ui';g.textAlign='center';g.fillText('HIVE QUEEN',400,19)}}
+function ring(x,y,r,c){g.strokeStyle=c;g.lineWidth=2;g.setLineDash([6,5]);g.beginPath();g.arc(x,y,r,0,7);g.stroke();g.setLineDash([])}
+function tower(t){const d=TW[t.k];if(st===t)ring(t.x,t.y,d.rng[t.lv],'#fff');g.save();g.translate(t.x,t.y);
+g.fillStyle='#0b1130';g.strokeStyle='#3b4a8f';g.lineWidth=2;g.beginPath();g.arc(0,0,17,0,7);g.fill();g.stroke();
+g.fillStyle=d.col;
+if(t.k=='blaster'){g.rotate(t.ang);g.beginPath();g.moveTo(16,0);g.lineTo(-10,-12);g.lineTo(-4,0);g.lineTo(-10,12);g.fill();g.fillStyle='#fff';g.beginPath();g.arc(3,0,3,0,7);g.fill();g.fillStyle='#fb923c';g.fillRect(-13,-3,4,6)}
+else if(t.k=='cannon'){g.rotate(t.ang);g.beginPath();g.moveTo(17,0);g.lineTo(7,-8);g.lineTo(-13,-12);g.lineTo(-13,12);g.lineTo(7,8);g.fill();g.fillStyle='#7c2d12';g.fillRect(2,-6,16,3);g.fillRect(2,3,16,3);g.fillStyle='#fff';g.fillRect(-6,-2,8,4)}
+else{g.beginPath();g.ellipse(0,2,15,7,0,0,7);g.fill();g.fillStyle='rgba(255,255,255,.75)';g.beginPath();g.ellipse(0,-2,7,6,0,Math.PI,0);g.fill();g.strokeStyle='#fff';g.lineWidth=1.5;g.beginPath();g.ellipse(0,2,15,7,0,0,7);g.stroke()}
+g.restore();g.fillStyle='#fde047';for(let i=0;i<=t.lv;i++)g.fillRect(t.x-14+i*10,t.y+13,7,3)}
+function enemy(e){const d=EN[e.k],r=d.r,x=e.x,y=e.y,w=Math.sin(e.d/12)*2;
+g.strokeStyle=d.col;g.lineWidth=2;g.beginPath();g.moveTo(x-r*.4,y-r*.8);g.lineTo(x-r*.7,y-r*1.4+w);g.moveTo(x+r*.4,y-r*.8);g.lineTo(x+r*.7,y-r*1.4-w);g.stroke();
+g.fillStyle=d.col;g.beginPath();g.ellipse(x,y,r,r*.9,0,0,7);g.fill();
+if(e.k=='brute'){g.fillStyle='#4c1d95';g.beginPath();g.moveTo(x-r*.8,y-r*.4);g.lineTo(x-r*.5,y-r*1.2);g.lineTo(x-r*.2,y-r*.7);g.moveTo(x+r*.8,y-r*.4);g.lineTo(x+r*.5,y-r*1.2);g.lineTo(x+r*.2,y-r*.7);g.fill()}
+const n=e.k=='swarm'?1:e.k=='boss'?3:2;
+for(let i=0;i<n;i++){const ex=n==1?0:(i/(n-1)-.5)*r*.95,er=n==1?r*.38:r*.25;g.fillStyle='#fff';g.beginPath();g.arc(x+ex,y-r*.1,er,0,7);g.fill();g.fillStyle='#111';g.beginPath();g.arc(x+ex,y-r*.1,er*.5,0,7);g.fill()}
+if(e.k=='shield'){g.strokeStyle='#e0f2fe';g.lineWidth=3;g.beginPath();g.arc(x,y,r+2,-1.2,1.2);g.stroke()}
+if(e.k=='boss'){g.fillStyle='#fde047';g.beginPath();g.moveTo(x-14,y-r+2);g.lineTo(x-8,y-r-9);g.lineTo(x,y-r+1);g.lineTo(x+8,y-r-9);g.lineTo(x+14,y-r+2);g.fill()}
+if(e.slow){g.strokeStyle='#a5f3fc';g.lineWidth=2;g.beginPath();g.arc(x,y,r+3,0,7);g.stroke()}
+if(e.hp<e.max&&e.k!='boss'){g.fillStyle='rgba(0,0,0,.6)';g.fillRect(x-r,y-r-10,r*2,4);g.fillStyle='#4ade80';g.fillRect(x-r,y-r-10,r*2*Math.max(0,e.hp/e.max),4)}}
+
+/* UI */
+function ui(){$('hR').textContent=round+'/'+MAXR;$('hL').textContent=lives;$('hG').textContent=money;
+const nr=round+1;$('hN').textContent=round>=MAXR?'Done':nr%10==0?'BOSS':plan(nr).length+' aliens';
+$('go').disabled=active||over||round>=MAXR;$('go').textContent=active?'Wave '+round+' in progress':'Start wave '+Math.min(nr,MAXR);
+document.querySelectorAll('.tw').forEach(b=>{b.setAttribute('aria-pressed',sel===b.dataset.k);b.disabled=money<TW[b.dataset.k].c[0]&&sel!==b.dataset.k});
+const s=$('sel');if(st){const d=TW[st.k],up=st.lv<2?d.c[st.lv+1]:0,sell=Math.floor(st.inv*.7);
+const key=st.k+st.lv+(money>=up)+'|'+sell;if(s.dataset.key!==key){s.dataset.key=key;s.innerHTML='<div><b>'+d.n+' level '+(st.lv+1)+'</b><br><small>Damage '+d.dmg[st.lv]+' · Range '+d.rng[st.lv]+(d.slow?' · Slow '+Math.round(d.slow[st.lv]*100)+'%':'')+'</small></div><div class="ctl">'+(st.lv<2?'<button class="btn" id="up" '+(money>=up?'':'disabled')+'>Upgrade '+up+'</button>':'<b>Max level</b>')+'<button class="btn o" id="sl">Recall +'+sell+'</button></div>';
+if($('up'))$('up').onclick=()=>{if(money>=up){money-=up;st.inv+=up;st.lv++;s.dataset.key='';ui()}};$('sl').onclick=()=>{money+=sell;towers=towers.filter(t=>t!==st);st=null;ui()}}}
+else if(s.dataset.key!=='none'){s.dataset.key='none';s.innerHTML=sel?'<span>Click an empty patch of space to deploy a '+TW[sel].n+'.</span>':'<span>Pick a ship below, then click empty space to deploy it. Click a ship to upgrade or recall it.</span>'}
+if(!st&&sel)s.dataset.key=''}
+function cell(e){const r=C.getBoundingClientRect(),x=(e.clientX-r.left)*800/r.width,y=(e.clientY-r.top)*480/r.height;return{cx:Math.floor(x/T),cy:Math.floor(y/T)}}
+C.addEventListener('pointermove',e=>hover=cell(e));C.addEventListener('pointerleave',()=>hover=null);
+C.addEventListener('click',e=>{if(over)return;const{cx,cy}=cell(e),t=towers.find(t=>t.cx==cx&&t.cy==cy);
+if(t){st=t;sel=null;$('sel').dataset.key='';return}
+if(sel&&!blocked.has(cx+','+cy)){const d=TW[sel];if(money>=d.c[0]){money-=d.c[0];towers.push({k:sel,cx,cy,x:cx*T+20,y:cy*T+20,lv:0,cd:0,ang:0,inv:d.c[0]})}else toast('Not enough credits')}else{st=null;if(!sel)$('sel').dataset.key=''}ui()});
+function pick(k){sel=sel===k?null:k;st=null;$('sel').dataset.key='';ui()}
+$('bar').innerHTML=Object.keys(TW).map((k,i)=>'<button class="tw" data-k="'+k+'" aria-pressed="false"><b>'+(i+1)+'. '+TW[k].n+' · '+TW[k].c[0]+'</b><small>'+TW[k].d+'</small></button>').join('');
+document.querySelectorAll('.tw').forEach(b=>b.onclick=()=>pick(b.dataset.k));
+$('leg').innerHTML=Object.values(EN).map(d=>'<div><i style="background:'+d.col+'"></i><b>'+d.n+'</b> – '+d.note+'</div>').join('');
+$('go').onclick=startRound;$('again').onclick=init;
+$('spd').onclick=()=>{speed=speed==1?2:speed==2?3:1;$('spd').textContent='Speed '+speed+'x'};
+addEventListener('keydown',e=>{if(e.key=='1')pick('blaster');if(e.key=='2')pick('cannon');if(e.key=='3')pick('frost');if(e.key==' '&&e.target.tagName!='BUTTON'){e.preventDefault();startRound()}if(e.key=='Escape'){sel=null;st=null;$('sel').dataset.key='';ui()}});
+let last=performance.now();
+function loop(now){const dt=Math.min(.1,(now-last)/1000)*speed;last=now;if(!over){const n=Math.max(1,Math.ceil(dt/.02));for(let i=0;i<n;i++)step(dt/n)}draw();requestAnimationFrame(loop)}
+init();requestAnimationFrame(loop);
+</script>
+</body>
+</html>
